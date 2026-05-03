@@ -39,7 +39,21 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 		[Display(Order = 2)]
 		public ChartAnchor EndAnchor { get; set; }
 
-		public override IEnumerable<ChartAnchor> Anchors { get { return new[] { StartAnchor, EndAnchor }; } }
+		[Display(Order = 3)]
+		public ChartAnchor CutAnchor { get; set; }
+
+		[Display(Name = "Has Cutoff", GroupName = "NinjaScriptGeneral", Order = 8)]
+		public bool HasCutoff { get; set; }
+
+		public override IEnumerable<ChartAnchor> Anchors
+		{
+			get
+			{
+				return HasCutoff
+					? new[] { StartAnchor, EndAnchor, CutAnchor }
+					: new[] { StartAnchor, EndAnchor };
+			}
+		}
 
 		[Display(Name = "Outline", GroupName = "NinjaScriptGeneral", Order = 1)]
 		public Stroke OutlineStroke { get; set; }
@@ -100,6 +114,8 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
 				StartAnchor					= new ChartAnchor { IsEditing = true, DrawingTool = this, DisplayName = "High Anchor" };
 				EndAnchor					= new ChartAnchor { IsEditing = true, DrawingTool = this, DisplayName = "Low Anchor" };
+				CutAnchor					= new ChartAnchor { IsEditing = false, DrawingTool = this, DisplayName = "Cut Anchor" };
+				HasCutoff					= false;
 
 				OutlineStroke				= new Stroke(System.Windows.Media.Brushes.DodgerBlue, 2f);
 				AreaBrush					= System.Windows.Media.Brushes.DodgerBlue;
@@ -147,6 +163,19 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 			ChartPanel chartPanel	= chartControl.ChartPanels[chartScale.PanelIndex];
 			Point startPoint		= StartAnchor.GetPoint(chartControl, chartPanel, chartScale);
 			Point endPoint			= EndAnchor.GetPoint(chartControl, chartPanel, chartScale);
+
+			if (HasCutoff && CutAnchor != null)
+			{
+				Point cutPoint	= CutAnchor.GetPoint(chartControl, chartPanel, chartScale);
+				double midY		= (startPoint.Y + endPoint.Y) / 2.0;
+				return new[]
+				{
+					new Point(startPoint.X, startPoint.Y),
+					new Point(startPoint.X, endPoint.Y),
+					new Point(cutPoint.X,   midY)
+				};
+			}
+
 			return new[] { new Point(startPoint.X, startPoint.Y), new Point(startPoint.X, endPoint.Y) };
 		}
 
@@ -159,9 +188,9 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 		{
 			if (DrawingState == DrawingState.Building)
 				return true;
-			// Rectangle extends to the right edge forever, so it is visible
-			// whenever the chart's last visible time is at or after the start time.
-			return StartAnchor.Time <= lastTimeOnChart;
+			if (StartAnchor.Time > lastTimeOnChart) return false;
+			if (HasCutoff && CutAnchor != null && CutAnchor.Time < firstTimeOnChart) return false;
+			return true;
 		}
 
 		public override void OnCalculateMinMax()
@@ -206,6 +235,17 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 					}
 					break;
 				case DrawingState.Normal:
+					// Shift+Click sets/updates the right-edge cutoff at the click time.
+					if ((System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) == System.Windows.Input.ModifierKeys.Shift)
+					{
+						if (CutAnchor == null)
+							CutAnchor = new ChartAnchor { DrawingTool = this, DisplayName = "Cut Anchor" };
+						dataPoint.CopyDataValues(CutAnchor);
+						CutAnchor.Price = (StartAnchor.Price + EndAnchor.Price) / 2.0;
+						HasCutoff = true;
+						return;
+					}
+
 					Point pt		= dataPoint.GetPoint(chartControl, chartPanel, chartScale);
 					editingAnchor	= GetClosestAnchor(chartControl, chartPanel, chartScale, cursorSensitivity, pt);
 					if (editingAnchor != null)
@@ -232,11 +272,20 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 			}
 			else if (DrawingState == DrawingState.Editing && editingAnchor != null)
 			{
-				// Allow free repositioning of the anchor being dragged...
-				dataPoint.CopyDataValues(editingAnchor);
-				// ...but force the right side (low anchor) to share start anchor's time
-				EndAnchor.Time		= StartAnchor.Time;
-				EndAnchor.SlotIndex	= StartAnchor.SlotIndex;
+				if (editingAnchor == CutAnchor)
+				{
+					// Cut handle: only adjust time; price snaps to vertical center
+					CutAnchor.Time		= dataPoint.Time;
+					CutAnchor.SlotIndex	= dataPoint.SlotIndex;
+					CutAnchor.Price		= (StartAnchor.Price + EndAnchor.Price) / 2.0;
+				}
+				else
+				{
+					dataPoint.CopyDataValues(editingAnchor);
+					// Right side (low anchor) always shares start anchor's time
+					EndAnchor.Time		= StartAnchor.Time;
+					EndAnchor.SlotIndex	= StartAnchor.SlotIndex;
+				}
 			}
 			else if (DrawingState == DrawingState.Moving)
 			{
@@ -270,6 +319,12 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
 			float left		= (float)startPoint.X;
 			float right		= (float)(chartPanel.X + chartPanel.W);
+			if (HasCutoff && CutAnchor != null)
+			{
+				Point cutPoint = CutAnchor.GetPoint(chartControl, chartPanel, chartScale);
+				right = (float)Math.Min(right, cutPoint.X);
+				if (right < left) right = left;
+			}
 			float top		= (float)Math.Min(startPoint.Y, endPoint.Y);
 			float bottom	= (float)Math.Max(startPoint.Y, endPoint.Y);
 
@@ -295,6 +350,8 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 				RenderTarget.DrawLine(new SharpDX.Vector2(left, top),    new SharpDX.Vector2(right, top),    outlineDx, OutlineStroke.Width, OutlineStroke.StrokeStyle);
 				RenderTarget.DrawLine(new SharpDX.Vector2(left, bottom), new SharpDX.Vector2(right, bottom), outlineDx, OutlineStroke.Width, OutlineStroke.StrokeStyle);
 				RenderTarget.DrawLine(new SharpDX.Vector2(left, top),    new SharpDX.Vector2(left,  bottom), outlineDx, OutlineStroke.Width, OutlineStroke.StrokeStyle);
+				if (HasCutoff)
+					RenderTarget.DrawLine(new SharpDX.Vector2(right, top), new SharpDX.Vector2(right, bottom), outlineDx, OutlineStroke.Width, OutlineStroke.StrokeStyle);
 			}
 
 			if (!ShowPriceLabels) return;
