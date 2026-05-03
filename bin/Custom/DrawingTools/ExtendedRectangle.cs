@@ -16,9 +16,9 @@ using NinjaTrader.Gui.Tools;
 using NinjaTrader.Data;
 using NinjaTrader.NinjaScript;
 using NinjaTrader.NinjaScript.DrawingTools;
-using SharpDX;
 using SharpDX.Direct2D1;
 using SharpDX.DirectWrite;
+using Point = System.Windows.Point;
 #endregion
 
 namespace NinjaTrader.NinjaScript.DrawingTools
@@ -292,9 +292,9 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 			SharpDX.Direct2D1.Brush outlineDx		= OutlineStroke.BrushDX;
 			if (outlineDx != null)
 			{
-				RenderTarget.DrawLine(new Vector2(left, top),    new Vector2(right, top),    outlineDx, OutlineStroke.Width, OutlineStroke.StrokeStyle);
-				RenderTarget.DrawLine(new Vector2(left, bottom), new Vector2(right, bottom), outlineDx, OutlineStroke.Width, OutlineStroke.StrokeStyle);
-				RenderTarget.DrawLine(new Vector2(left, top),    new Vector2(left,  bottom), outlineDx, OutlineStroke.Width, OutlineStroke.StrokeStyle);
+				RenderTarget.DrawLine(new SharpDX.Vector2(left, top),    new SharpDX.Vector2(right, top),    outlineDx, OutlineStroke.Width, OutlineStroke.StrokeStyle);
+				RenderTarget.DrawLine(new SharpDX.Vector2(left, bottom), new SharpDX.Vector2(right, bottom), outlineDx, OutlineStroke.Width, OutlineStroke.StrokeStyle);
+				RenderTarget.DrawLine(new SharpDX.Vector2(left, top),    new SharpDX.Vector2(left,  bottom), outlineDx, OutlineStroke.Width, OutlineStroke.StrokeStyle);
 			}
 
 			if (!ShowPriceLabels) return;
@@ -302,8 +302,8 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 			double highPrice	= Math.Max(StartAnchor.Price, EndAnchor.Price);
 			double lowPrice		= Math.Min(StartAnchor.Price, EndAnchor.Price);
 
-			string highText		= FormatPrice(highPrice, chartControl);
-			string lowText		= FormatPrice(lowPrice,  chartControl);
+			string highText		= FormatPrice(highPrice, chartControl, chartScale);
+			string lowText		= FormatPrice(lowPrice,  chartControl, chartScale);
 
 			SharpDX.DirectWrite.TextFormat textFormat = null;
 			try
@@ -338,20 +338,20 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 				}
 
 				SharpDX.Direct2D1.Brush textBrush = (LabelTextBrush ?? System.Windows.Media.Brushes.White).ToDxBrush(RenderTarget);
-				RenderTarget.DrawTextLayout(new Vector2(labelRect.X + padding, labelRect.Y + padding), textLayout, textBrush);
+				RenderTarget.DrawTextLayout(new SharpDX.Vector2(labelRect.X + padding, labelRect.Y + padding), textLayout, textBrush);
 				textBrush.Dispose();
 			}
 		}
 
-		private static string FormatPrice(double price, ChartControl chartControl)
+		private static string FormatPrice(double price, ChartControl chartControl, ChartScale chartScale)
 		{
 			try
 			{
-				if (chartControl != null && chartControl.Instruments != null && chartControl.Instruments.Count > 0)
+				if (chartScale != null && chartScale.Panel != null)
 				{
-					Instrument inst = chartControl.Instruments[0];
-					if (inst != null && inst.MasterInstrument != null)
-						return inst.MasterInstrument.FormatPrice(price);
+					ChartBars cb = chartScale.Panel.ChartObjects.OfType<ChartBars>().FirstOrDefault();
+					if (cb != null && cb.Bars != null && cb.Bars.Instrument != null && cb.Bars.Instrument.MasterInstrument != null)
+						return cb.Bars.Instrument.MasterInstrument.FormatPrice(price);
 				}
 			}
 			catch { /* fall through */ }
