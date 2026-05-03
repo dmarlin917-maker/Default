@@ -302,8 +302,8 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 			double highPrice	= Math.Max(StartAnchor.Price, EndAnchor.Price);
 			double lowPrice		= Math.Min(StartAnchor.Price, EndAnchor.Price);
 
-			string highText		= FormatPrice(highPrice, chartControl, chartScale);
-			string lowText		= FormatPrice(lowPrice,  chartControl, chartScale);
+			string highText		= FormatPrice(highPrice, chartPanel);
+			string lowText		= FormatPrice(lowPrice,  chartPanel);
 
 			SharpDX.DirectWrite.TextFormat textFormat = null;
 			try
@@ -343,13 +343,13 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 			}
 		}
 
-		private static string FormatPrice(double price, ChartControl chartControl, ChartScale chartScale)
+		private static string FormatPrice(double price, ChartPanel chartPanel)
 		{
 			try
 			{
-				if (chartScale != null && chartScale.Panel != null)
+				if (chartPanel != null)
 				{
-					ChartBars cb = chartScale.Panel.ChartObjects.OfType<ChartBars>().FirstOrDefault();
+					ChartBars cb = chartPanel.ChartObjects.OfType<ChartBars>().FirstOrDefault();
 					if (cb != null && cb.Bars != null && cb.Bars.Instrument != null && cb.Bars.Instrument.MasterInstrument != null)
 						return cb.Bars.Instrument.MasterInstrument.FormatPrice(price);
 				}
