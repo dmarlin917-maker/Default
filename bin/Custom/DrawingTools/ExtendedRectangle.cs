@@ -32,6 +32,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 	{
 		private const double cursorSensitivity = 15;
 		private ChartAnchor editingAnchor;
+		private bool isDraggingCut;
 
 		[Display(Order = 1)]
 		public ChartAnchor StartAnchor { get; set; }
@@ -40,7 +41,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 		public ChartAnchor EndAnchor { get; set; }
 
 		[Browsable(false)]
-		public ChartAnchor CutAnchor { get; set; }
+		public DateTime CutoffTime { get; set; }
 
 		[Display(Name = "Has Cutoff", GroupName = "NinjaScriptGeneral", Order = 8)]
 		public bool HasCutoff { get; set; }
@@ -109,8 +110,8 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
 				StartAnchor					= new ChartAnchor { IsEditing = true, DrawingTool = this, DisplayName = "High Anchor" };
 				EndAnchor					= new ChartAnchor { IsEditing = true, DrawingTool = this, DisplayName = "Low Anchor" };
-				CutAnchor					= new ChartAnchor { IsEditing = false, DrawingTool = this, DisplayName = "Cut Anchor" };
 				HasCutoff					= false;
+				CutoffTime					= DateTime.MinValue;
 
 				OutlineStroke				= new Stroke(System.Windows.Media.Brushes.DodgerBlue, 2f);
 				AreaBrush					= System.Windows.Media.Brushes.DodgerBlue;
@@ -159,19 +160,25 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 			Point startPoint		= StartAnchor.GetPoint(chartControl, chartPanel, chartScale);
 			Point endPoint			= EndAnchor.GetPoint(chartControl, chartPanel, chartScale);
 
-			if (HasCutoff && CutAnchor != null)
+			if (HasCutoff)
 			{
-				Point cutPoint	= CutAnchor.GetPoint(chartControl, chartPanel, chartScale);
+				double cutX		= GetCutoffX(chartControl);
 				double midY		= (startPoint.Y + endPoint.Y) / 2.0;
 				return new[]
 				{
 					new Point(startPoint.X, startPoint.Y),
 					new Point(startPoint.X, endPoint.Y),
-					new Point(cutPoint.X,   midY)
+					new Point(cutX,         midY)
 				};
 			}
 
 			return new[] { new Point(startPoint.X, startPoint.Y), new Point(startPoint.X, endPoint.Y) };
+		}
+
+		private double GetCutoffX(ChartControl chartControl)
+		{
+			try { return chartControl.GetXByTime(CutoffTime); }
+			catch { return 0; }
 		}
 
 		public override bool IsAlertConditionTrue(AlertConditionItem conditionItem, Condition condition, ChartAlertValue[] values, ChartControl chartControl, ChartScale chartScale)
@@ -184,7 +191,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 			if (DrawingState == DrawingState.Building)
 				return true;
 			if (StartAnchor.Time > lastTimeOnChart) return false;
-			if (HasCutoff && CutAnchor != null && CutAnchor.Time < firstTimeOnChart) return false;
+			if (HasCutoff && CutoffTime < firstTimeOnChart) return false;
 			return true;
 		}
 
@@ -233,28 +240,24 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 					// Shift+Click sets/updates the right-edge cutoff at the click time.
 					if ((System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) == System.Windows.Input.ModifierKeys.Shift)
 					{
-						if (CutAnchor == null)
-							CutAnchor = new ChartAnchor { DrawingTool = this, DisplayName = "Cut Anchor" };
-						dataPoint.CopyDataValues(CutAnchor);
-						CutAnchor.Price = (StartAnchor.Price + EndAnchor.Price) / 2.0;
-						HasCutoff = true;
+						CutoffTime = dataPoint.Time;
+						HasCutoff  = true;
 						return;
 					}
 
 					Point pt = dataPoint.GetPoint(chartControl, chartPanel, chartScale);
 
-					// Manual hit-test for the cut handle (CutAnchor is not in Anchors)
-					if (HasCutoff && CutAnchor != null)
+					// Manual hit-test for the cut handle
+					if (HasCutoff)
 					{
-						Point cutPoint	= CutAnchor.GetPoint(chartControl, chartPanel, chartScale);
-						Point sP		= StartAnchor.GetPoint(chartControl, chartPanel, chartScale);
-						Point eP		= EndAnchor.GetPoint(chartControl, chartPanel, chartScale);
-						double midY		= (sP.Y + eP.Y) / 2.0;
-						if (Math.Abs(pt.X - cutPoint.X) <= cursorSensitivity && Math.Abs(pt.Y - midY) <= (Math.Abs(eP.Y - sP.Y) / 2.0 + cursorSensitivity))
+						double cutX	= GetCutoffX(chartControl);
+						Point sP	= StartAnchor.GetPoint(chartControl, chartPanel, chartScale);
+						Point eP	= EndAnchor.GetPoint(chartControl, chartPanel, chartScale);
+						double midY	= (sP.Y + eP.Y) / 2.0;
+						if (Math.Abs(pt.X - cutX) <= cursorSensitivity && Math.Abs(pt.Y - midY) <= (Math.Abs(eP.Y - sP.Y) / 2.0 + cursorSensitivity))
 						{
-							editingAnchor			= CutAnchor;
-							CutAnchor.IsEditing		= true;
-							DrawingState			= DrawingState.Editing;
+							isDraggingCut	= true;
+							DrawingState	= DrawingState.Editing;
 							break;
 						}
 					}
@@ -282,19 +285,15 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 				EndAnchor.Time		= StartAnchor.Time;
 				EndAnchor.SlotIndex	= StartAnchor.SlotIndex;
 			}
-			else if (DrawingState == DrawingState.Editing && editingAnchor != null)
+			else if (DrawingState == DrawingState.Editing)
 			{
-				if (editingAnchor == CutAnchor)
+				if (isDraggingCut)
 				{
-					// Cut handle: only adjust time; price snaps to vertical center
-					CutAnchor.Time		= dataPoint.Time;
-					CutAnchor.SlotIndex	= dataPoint.SlotIndex;
-					CutAnchor.Price		= (StartAnchor.Price + EndAnchor.Price) / 2.0;
+					CutoffTime = dataPoint.Time;
 				}
-				else
+				else if (editingAnchor != null)
 				{
 					dataPoint.CopyDataValues(editingAnchor);
-					// Right side (low anchor) always shares start anchor's time
 					EndAnchor.Time		= StartAnchor.Time;
 					EndAnchor.SlotIndex	= StartAnchor.SlotIndex;
 				}
@@ -315,6 +314,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 			{
 				if (editingAnchor != null) editingAnchor.IsEditing = false;
 				editingAnchor	= null;
+				isDraggingCut	= false;
 				DrawingState	= DrawingState.Normal;
 			}
 		}
@@ -331,10 +331,10 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
 			float left		= (float)startPoint.X;
 			float right		= (float)(chartPanel.X + chartPanel.W);
-			if (HasCutoff && CutAnchor != null)
+			if (HasCutoff)
 			{
-				Point cutPoint = CutAnchor.GetPoint(chartControl, chartPanel, chartScale);
-				right = (float)Math.Min(right, cutPoint.X);
+				double cutX = GetCutoffX(chartControl);
+				right = (float)Math.Min(right, cutX);
 				if (right < left) right = left;
 			}
 			float top		= (float)Math.Min(startPoint.Y, endPoint.Y);
