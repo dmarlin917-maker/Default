@@ -39,7 +39,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 		[Display(Order = 2)]
 		public ChartAnchor EndAnchor { get; set; }
 
-		[Display(Order = 3)]
+		[Browsable(false)]
 		public ChartAnchor CutAnchor { get; set; }
 
 		[Display(Name = "Has Cutoff", GroupName = "NinjaScriptGeneral", Order = 8)]
@@ -47,12 +47,7 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
 		public override IEnumerable<ChartAnchor> Anchors
 		{
-			get
-			{
-				return HasCutoff
-					? new[] { StartAnchor, EndAnchor, CutAnchor }
-					: new[] { StartAnchor, EndAnchor };
-			}
+			get { return new[] { StartAnchor, EndAnchor }; }
 		}
 
 		[Display(Name = "Outline", GroupName = "NinjaScriptGeneral", Order = 1)]
@@ -246,8 +241,25 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 						return;
 					}
 
-					Point pt		= dataPoint.GetPoint(chartControl, chartPanel, chartScale);
-					editingAnchor	= GetClosestAnchor(chartControl, chartPanel, chartScale, cursorSensitivity, pt);
+					Point pt = dataPoint.GetPoint(chartControl, chartPanel, chartScale);
+
+					// Manual hit-test for the cut handle (CutAnchor is not in Anchors)
+					if (HasCutoff && CutAnchor != null)
+					{
+						Point cutPoint	= CutAnchor.GetPoint(chartControl, chartPanel, chartScale);
+						Point sP		= StartAnchor.GetPoint(chartControl, chartPanel, chartScale);
+						Point eP		= EndAnchor.GetPoint(chartControl, chartPanel, chartScale);
+						double midY		= (sP.Y + eP.Y) / 2.0;
+						if (Math.Abs(pt.X - cutPoint.X) <= cursorSensitivity && Math.Abs(pt.Y - midY) <= (Math.Abs(eP.Y - sP.Y) / 2.0 + cursorSensitivity))
+						{
+							editingAnchor			= CutAnchor;
+							CutAnchor.IsEditing		= true;
+							DrawingState			= DrawingState.Editing;
+							break;
+						}
+					}
+
+					editingAnchor = GetClosestAnchor(chartControl, chartPanel, chartScale, cursorSensitivity, pt);
 					if (editingAnchor != null)
 					{
 						editingAnchor.IsEditing	= true;
