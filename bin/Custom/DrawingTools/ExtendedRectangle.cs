@@ -88,6 +88,12 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 		[Display(Name = "Label Font Size", GroupName = "NinjaScriptGeneral", Order = 7)]
 		public int LabelFontSize { get; set; }
 
+		[Display(Name = "Has Cutoff", GroupName = "NinjaScriptGeneral", Order = 8)]
+		public bool HasCutoff { get; set; }
+
+		[Browsable(false)]
+		public DateTime CutoffTime { get; set; }
+
 		public override object Icon { get { return Gui.Tools.Icons.DrawRectangle; } }
 
 		protected override void OnStateChange()
@@ -108,6 +114,8 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 				LabelTextBrush				= System.Windows.Media.Brushes.White;
 				LabelBackgroundBrush		= System.Windows.Media.Brushes.DodgerBlue;
 				LabelFontSize				= 12;
+				HasCutoff					= false;
+				CutoffTime					= DateTime.MinValue;
 			}
 			else if (State == State.Terminated)
 				Dispose();
@@ -206,6 +214,14 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 					}
 					break;
 				case DrawingState.Normal:
+					// Shift + Left-click sets the right-edge cutoff at the click time.
+					if ((System.Windows.Input.Keyboard.Modifiers & System.Windows.Input.ModifierKeys.Shift) == System.Windows.Input.ModifierKeys.Shift)
+					{
+						CutoffTime	= dataPoint.Time;
+						HasCutoff	= true;
+						return;
+					}
+
 					Point pt		= dataPoint.GetPoint(chartControl, chartPanel, chartScale);
 					editingAnchor	= GetClosestAnchor(chartControl, chartPanel, chartScale, cursorSensitivity, pt);
 					if (editingAnchor != null)
@@ -270,6 +286,16 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 
 			float left		= (float)startPoint.X;
 			float right		= (float)(chartPanel.X + chartPanel.W);
+			if (HasCutoff && CutoffTime > DateTime.MinValue)
+			{
+				try
+				{
+					double cutX = chartControl.GetXByTime(CutoffTime);
+					right = (float)Math.Min(right, cutX);
+					if (right < left) right = left;
+				}
+				catch { }
+			}
 			float top		= (float)Math.Min(startPoint.Y, endPoint.Y);
 			float bottom	= (float)Math.Max(startPoint.Y, endPoint.Y);
 
@@ -295,6 +321,8 @@ namespace NinjaTrader.NinjaScript.DrawingTools
 				RenderTarget.DrawLine(new SharpDX.Vector2(left, top),    new SharpDX.Vector2(right, top),    outlineDx, OutlineStroke.Width, OutlineStroke.StrokeStyle);
 				RenderTarget.DrawLine(new SharpDX.Vector2(left, bottom), new SharpDX.Vector2(right, bottom), outlineDx, OutlineStroke.Width, OutlineStroke.StrokeStyle);
 				RenderTarget.DrawLine(new SharpDX.Vector2(left, top),    new SharpDX.Vector2(left,  bottom), outlineDx, OutlineStroke.Width, OutlineStroke.StrokeStyle);
+				if (HasCutoff && CutoffTime > DateTime.MinValue)
+					RenderTarget.DrawLine(new SharpDX.Vector2(right, top), new SharpDX.Vector2(right, bottom), outlineDx, OutlineStroke.Width, OutlineStroke.StrokeStyle);
 			}
 
 			if (!ShowPriceLabels) return;
